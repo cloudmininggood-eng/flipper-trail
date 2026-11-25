@@ -1,0 +1,101 @@
+name: Build Flipper Trail
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      sdk_channel:
+        description: "Momentum update channel to build against"
+        required: false
+        type: choice
+        options:
+          - release
+          - rc
+          - dev
+        default: release
+      sdk_url:
+        description: "Optional: direct URL to an exact Momentum SDK zip (overrides sdk_channel; f7 target)"
+        required: false
+        default: ""
+      expected_api:
+        description: "API version your Flipper reports (build fails if the SDK differs)"
+        required: false
+        default: "87.1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build FAP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uFBT
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ufbt
+
+      - name: Select Momentum SDK
+        env:
+          SDK_CHANNEL: ${{ inputs.sdk_channel }}
+          SDK_URL: ${{ inputs.sdk_url }}
+        run: |
+          if [ -n "$SDK_URL" ]; then
+            ufbt update --hw-target f7 --url "$SDK_URL"
+          else
+            ufbt update --index-url=https://up.momentum-fw.dev/firmware/directory.json --channel "${SDK_CHANNEL:-release}"
+          fi
+
+      - name: Show SDK information
+        run: ufbt status
+
+      - name: Verify SDK API version
+        env:
+          EXPECTED_API: ${{ inputs.expected_api || '87.1' }}
+        run: |
+          csv="$(find "$HOME/.ufbt" -name api_symbols.csv -print -quit 2>/dev/null || true)"
+          if [ -z "$csv" ]; then
+            echo "::warning::Could not find api_symbols.csv; API version NOT verified. Check the build log before installing."
+            exit 0
+          fi
+          sdk_api="$(awk -F, '/^Version,/{print $3; exit}' "$csv")"
+          echo "SDK API version: $sdk_api (expected $EXPECTED_API)"
+          if [ "$sdk_api" != "$EXPECTED_API" ]; then
+            echo "::error::SDK API $sdk_api does not match expected $EXPECTED_API. Use sdk_url to pin your firmware's exact SDK."
+            exit 1
+          fi
+
+      - name: Build FAP
+        run: ufbt
+
+      - name: Check build output
+        run: |
+          find dist -maxdepth 2 -type f -print 2>/dev/null || true
+          if ! find dist -maxdepth 2 -type f -name '*.fap' -print -quit 2>/dev/null | grep -q .; then
+            echo "::error::No FAP file was generated."
+            exit 1
+          fi
+
+      - name: Upload FAP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipper-trail-fap
+          path: dist/*.fap
+          if-no-files-found: error
+          retention-days: 30

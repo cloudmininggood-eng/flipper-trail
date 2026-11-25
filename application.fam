@@ -1,0 +1,12 @@
+App(
+    appid="flipper_trail",
+    name="Flipper Trail",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="flipper_trail_app",
+    stack_size=4096,
+    fap_category="mbm/GPS",
+    fap_version="0.1.0",
+    fap_description="GPS route recorder and retrace prototype",
+    fap_author="OpenAI",
+    requires=["gui"],
+)
