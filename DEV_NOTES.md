@@ -17,6 +17,10 @@ Handoff notes so work can continue from anywhere (including a phone, with only G
   file. That is why the source is split into modules of 9-24 KB under `src/`. Edit the one module that holds the
   change; use `push_files` for one commit that touches several files. Do not rewrite `flipper_trail.c`
   (it only holds the include list).
+  The repo is public so the connector can read it. When it was set up, **reads worked but writes returned 403**
+  ("Resource not accessible by personal access token"): the connector's fine-grained token must be given this
+  repo with Contents (and Workflows, to edit `.github/workflows`) read & write. Until then, changes from a phone
+  can only be proposed, not pushed.
 - **Build is strict:** warnings are errors. `snprintf` buffers must fit the worst case (a `%d` can need 12
   bytes, a `%s` of a `char[32]` needs 32) or `-Wformat-truncation` fails the build; use `strlcpy` for copies.
 - CI checks the SDK API version against `expected_api` (87.1, the owner's firmware). If Momentum's release
