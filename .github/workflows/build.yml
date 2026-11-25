@@ -2,6 +2,8 @@ name: Build Flipper Trail
 
 on:
   push:
+    branches-ignore:
+      - ci-status
   pull_request:
     branches:
       - main
@@ -26,7 +28,7 @@ on:
         default: "87.1"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -56,6 +58,7 @@ jobs:
           SDK_CHANNEL: ${{ inputs.sdk_channel }}
           SDK_URL: ${{ inputs.sdk_url }}
         run: |
+          exec > >(tee -a build.log) 2>&1
           if [ -n "$SDK_URL" ]; then
             ufbt update --hw-target f7 --url "$SDK_URL"
           else
@@ -63,12 +66,13 @@ jobs:
           fi
 
       - name: Show SDK information
-        run: ufbt status
+        run: ufbt status 2>&1 | tee -a build.log
 
       - name: Verify SDK API version
         env:
           EXPECTED_API: ${{ inputs.expected_api || '87.1' }}
         run: |
+          exec > >(tee -a build.log) 2>&1
           csv="$(find "$HOME/.ufbt" -name api_symbols.csv -print -quit 2>/dev/null || true)"
           if [ -z "$csv" ]; then
             echo "::warning::Could not find api_symbols.csv; API version NOT verified. Check the build log before installing."
@@ -82,7 +86,9 @@ jobs:
           fi
 
       - name: Build FAP
-        run: ufbt
+        run: |
+          set -o pipefail
+          ufbt 2>&1 | tee -a build.log
 
       - name: Check build output
         run: |
@@ -99,3 +105,46 @@ jobs:
           path: dist/*.fap
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish latest build (main only)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/*.fap --prerelease \
+            --title "Latest build (${GITHUB_SHA::7})" \
+            --notes "Built from ${GITHUB_SHA} on $(date -u '+%F %T') UTC. Copy the .fap to SD/apps/GPS/." \
+            --target "$GITHUB_SHA"
+
+      - name: Record build status (branch ci-status)
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        run: |
+          mkdir -p /tmp/status
+          warns="$(grep -c 'warning:' build.log 2>/dev/null || true)"
+          {
+            echo "# Build status"
+            echo
+            echo "- result: **$RESULT**"
+            echo "- branch: $GITHUB_REF_NAME"
+            echo "- commit: $GITHUB_SHA"
+            echo "- message: $(git log -1 --pretty=%s)"
+            echo "- compiler warnings: ${warns:-0}"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- time: $(date -u '+%F %T') UTC"
+            echo
+            echo "## Build log (last 150 lines)"
+            echo '```'
+            tail -n 150 build.log 2>/dev/null || echo "(no build log: the job stopped before the SDK step)"
+            echo '```'
+          } > /tmp/status/STATUS.md
+          cd /tmp/status
+          git init -q -b ci-status
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add STATUS.md
+          git commit -q -m "build $RESULT: ${GITHUB_SHA::7} on $GITHUB_REF_NAME"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status

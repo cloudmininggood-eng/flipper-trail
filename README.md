@@ -6,10 +6,14 @@ GPS route recorder and mapper for the Flipper Zero (Momentum firmware), using a 
 - Routes are stored in small per-area tile files, so only the area you are in is loaded
 - Settings: map view/facing/screen, zoom (20 m to 1.6 km), time zone and time trim, and more
 
+## Layout
+
+`flipper_trail.c` includes the modules in `src/`; see `DEV_NOTES.md` for the module map, workflow and design decisions.
+
 ## Build
 
 Every push builds the app with [uFBT](https://github.com/flipperdevices/flipperzero-ufbt) against the
-Momentum SDK (see `.github/workflows/build.yml`). Download the `.fap` from the run's **Artifacts**.
+Momentum SDK (see `.github/workflows/build.yml`). Download the `.fap` from the run's **Artifacts**, or from the **latest** pre-release (updated on every push to `main`).
 
 Locally: `pip install ufbt && ufbt update --index-url=https://up.momentum-fw.dev/firmware/directory.json --channel release && ufbt`
 
